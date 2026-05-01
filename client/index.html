@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hand-Drawn Type</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="panel">
+
+    <header class="panel-header">
+      <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 20 Q6 14 9 10 Q11 7 13 9 Q15 11 12 15 Q10 18 13 19 Q16 20 18 16" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <path d="M3 21 Q5 15 8 11" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+      </svg>
+      <h1 class="panel-title">Hand-Drawn Type</h1>
+    </header>
+
+    <div class="section">
+      <label class="label">Text</label>
+      <div class="text-input-row">
+        <input type="text" id="textInput" class="input" placeholder="Enter your text…" value="Hello">
+        <label class="toggle-label" title="Use selected text layer in AE">
+          <input type="checkbox" id="useSelected">
+          <span class="toggle-text">Use Layer</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="section two-col">
+      <div class="field">
+        <label class="label" for="fontSize">Font Size</label>
+        <div class="slider-row">
+          <input type="range" id="fontSize" class="slider" min="12" max="300" value="100">
+          <span class="slider-value" id="fontSizeVal">100</span>
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="colorPicker">Color</label>
+        <input type="color" id="colorPicker" class="color-input" value="#ffffff">
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="label" for="duration">Duration</label>
+      <div class="slider-row">
+        <input type="range" id="duration" class="slider" min="5" max="100" value="20">
+        <span class="slider-value" id="durationVal">2.0s</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="label" for="strokeWidth">Stroke Width</label>
+      <div class="slider-row">
+        <input type="range" id="strokeWidth" class="slider" min="1" max="20" value="4">
+        <span class="slider-value" id="strokeWidthVal">4</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="section">
+      <label class="label">Animation Style</label>
+      <div class="style-grid">
+        <button class="style-btn active" data-style="write-on">
+          <svg viewBox="0 0 36 24" fill="none">
+            <path d="M4 18 Q9 8 16 10 Q20 11 18 16 Q16 20 20 19 Q25 18 28 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span>Write-On</span>
+        </button>
+        <button class="style-btn" data-style="scribble">
+          <svg viewBox="0 0 36 24" fill="none">
+            <path d="M4 14 Q8 8 12 13 Q15 17 18 12 Q21 7 25 12 Q28 16 32 11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M5 17 Q9 11 13 16 Q16 20 19 15" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.6"/>
+          </svg>
+          <span>Scribble</span>
+        </button>
+        <button class="style-btn" data-style="sketch">
+          <svg viewBox="0 0 36 24" fill="none">
+            <rect x="8" y="6" width="20" height="12" rx="2" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2"/>
+            <path d="M10 12 Q18 8 26 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.7"/>
+          </svg>
+          <span>Sketch</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="label">Intensity</label>
+      <div class="intensity-row">
+        <button class="intensity-btn" data-intensity="subtle">Subtle</button>
+        <button class="intensity-btn active" data-intensity="medium">Medium</button>
+        <button class="intensity-btn" data-intensity="heavy">Heavy</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="apply-section">
+      <button class="apply-btn" id="applyBtn">
+        <svg class="btn-icon" viewBox="0 0 20 20" fill="none">
+          <path d="M3 17 L7 13 L15 5 Q16.5 3.5 18 5 Q19.5 6.5 18 8 L10 16 L6 17 Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M13 7 L15 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Apply Animation
+      </button>
+      <div class="status" id="status"></div>
+    </div>
+
+  </div>
+
+  <script src="js/CSInterface.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
