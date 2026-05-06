@@ -1,3 +1,5 @@
+#targetengine "sky_text_effect"
+
 /**
  * sky_text_effect.jsx - "Sky Inside Letters"
  * Adobe After Effects ExtendScript | ScriptUI Panel
@@ -28,6 +30,7 @@
     }
 
     function findProp(parent, names) {
+        if (!parent) { return null; }
         for (var i = 0; i < names.length; i++) {
             try {
                 var p = parent.property(names[i]);
@@ -80,7 +83,7 @@
         for (var k = 1; k <= prop.numKeys; k++) {
             try {
                 prop.setTemporalEaseAtKey(k, inEase, outEase);
-            } catch (e) {}
+            } catch (e2) {}
         }
     }
 
@@ -114,15 +117,28 @@
             try {
                 item = app.project.items[j];
                 if (item instanceof CompItem) { return item; }
-            } catch (e) {}
+            } catch (e2) {}
         }
 
         return null;
     }
 
-    function applyTrackMatte(layer, matteLayer, matteType) {
+    function isTextLayer(layer) {
+        if (!layer) { return false; }
         try {
-            if (layer.setTrackMatte) {
+            if (layer.matchName === "ADBE Text Layer") { return true; }
+        } catch (e) {}
+        try {
+            return !!layer.property("ADBE Text Properties");
+        } catch (e2) {
+            return false;
+        }
+    }
+
+    function applyTrackMatte(layer, matteLayer, matteType) {
+        if (!layer) { return false; }
+        try {
+            if (typeof layer.setTrackMatte === "function") {
                 layer.setTrackMatte(matteLayer, matteType);
                 return true;
             }
@@ -137,6 +153,10 @@
     }
 
     function applyEffect(params) {
+        if (!app.project) {
+            throw new Error("No project is open.");
+        }
+
         var comp = findActiveComp();
         if (!comp) {
             throw new Error("No composition found. Open a comp and try again.");
@@ -146,7 +166,7 @@
         }
 
         var origLayer = comp.selectedLayers[0];
-        if (!(origLayer instanceof TextLayer)) {
+        if (!isTextLayer(origLayer)) {
             throw new Error("Selected layer is not a text layer. Select a text layer and try again.");
         }
 
@@ -172,6 +192,8 @@
             var dur = comp.duration;
             var origName = origLayer.name;
             var warnings = [];
+
+            $.writeln("Sky Text Effect: applying to comp '" + comp.name + "', layer '" + origName + "'.");
 
             var baseLayer = origLayer.duplicate();
             baseLayer.name = origName + "_BASE";
@@ -275,6 +297,9 @@
                 }
             }
             return result;
+        } catch (err) {
+            $.writeln("Sky Text Effect ERROR: " + err.toString());
+            throw err;
         } finally {
             app.endUndoGroup();
         }
