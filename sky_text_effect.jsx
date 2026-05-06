@@ -1,3 +1,4 @@
+#target aftereffects
 #targetengine "sky_text_effect"
 
 /**
@@ -182,7 +183,7 @@
         var bLf = validateNum(params.blackLift, 0, 254); if (bLf === null) { errs.push("Black-point lift: must be 0-254"); }
         var ins = validateNum(params.inset, 1, 49); if (ins === null) { errs.push("Corner inset: must be 1-49"); }
         if (errs.length > 0) {
-            throw new Error("Fix these values:\n• " + errs.join("\n• "));
+            throw new Error("Fix these values:\n* " + errs.join("\n* "));
         }
 
         app.beginUndoGroup("Sky Text Effect");
@@ -405,6 +406,9 @@
         btnGroup.spacing = 6;
         btnGroup.margins = [0, 4, 0, 0];
 
+        var testBtn = btnGroup.add("button", undefined, "Test");
+        testBtn.preferredSize = [50, 26];
+
         var resetBtn = btnGroup.add("button", undefined, "Reset");
         resetBtn.preferredSize = [60, 26];
 
@@ -419,6 +423,12 @@
             statusBar.text = msg;
             win.update();
         }
+
+        testBtn.onClick = function () {
+            $.writeln("Sky Text Effect: TEST button clicked");
+            alert("Test button clicked");
+            setStatus("Test click received.");
+        };
 
         resetBtn.onClick = function () {
             f_c1.text = DEFAULTS.c1;
@@ -435,6 +445,8 @@
         };
 
         applyBtn.onClick = function () {
+            $.writeln("Sky Text Effect: APPLY button clicked");
+            alert("Apply button clicked");
             setStatus("Running...");
             try {
                 var result = applyEffect({
