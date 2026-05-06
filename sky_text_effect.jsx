@@ -388,6 +388,12 @@
         var applyBtn = btnGroup.add("button", undefined, "Apply Effect");
         applyBtn.preferredSize = [-1, 26];
 
+        // ── Status bar ────────────────────────────────────────────────────────
+
+        var statusBar = win.add("statictext", undefined, "Ready — select a text layer, then click Apply.");
+        statusBar.alignment    = ["fill", "bottom"];
+        statusBar.justify      = "left";
+
         // ── Button handlers ───────────────────────────────────────────────────
 
         resetBtn.onClick = function () {
@@ -401,21 +407,30 @@
             f_vDr.text = DEFAULTS.vertDrift;
             f_bLf.text = DEFAULTS.blackLift;
             f_ins.text = DEFAULTS.inset;
+            statusBar.text = "Reset to defaults.";
         };
 
         applyBtn.onClick = function () {
-            applyEffect({
-                c1:        f_c1.text,
-                c2:        f_c2.text,
-                c3:        f_c3.text,
-                c4:        f_c4.text,
-                opacity:   f_opa.text,
-                driftDur:  f_dDr.text,
-                driftPct:  f_dPc.text,
-                vertDrift: f_vDr.text,
-                blackLift: f_bLf.text,
-                inset:     f_ins.text
-            });
+            statusBar.text = "Running…";
+            try {
+                applyEffect({
+                    c1:        f_c1.text,
+                    c2:        f_c2.text,
+                    c3:        f_c3.text,
+                    c4:        f_c4.text,
+                    opacity:   f_opa.text,
+                    driftDur:  f_dDr.text,
+                    driftPct:  f_dPc.text,
+                    vertDrift: f_vDr.text,
+                    blackLift: f_bLf.text,
+                    inset:     f_ins.text
+                });
+                statusBar.text = "Done! Check your timeline.";
+            } catch (e) {
+                statusBar.text = "Error — see alert.";
+                alert("Sky Text Effect — unexpected error:\n\n" + e.toString() +
+                      (e.line !== undefined ? "\nLine: " + e.line : ""));
+            }
         };
 
         return win;
