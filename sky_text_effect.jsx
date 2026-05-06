@@ -13,9 +13,9 @@
  * HOW TO USE
  *   1. Open a composition with at least one text layer.
  *   2. Select the text layer in the Timeline.
- *   3. Adjust colours / settings in the panel as desired.
- *   4. Click  Apply Effect.
- *   5. A "SKY_TEXT_EFFECT" pre-comp is built in the timeline.
+ *   3. Adjust colours / settings in the panel.
+ *   4. Click Apply Effect — watch the status bar at the bottom.
+ *   5. A "SKY_TEXT_EFFECT" pre-comp appears in the timeline.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -30,16 +30,16 @@
         c2:        "C06C84",   // Corner 2  —  dusty rose       (top-right)
         c3:        "FF8C42",   // Corner 3  —  amber orange     (bottom-left)
         c4:        "1A0A2E",   // Corner 4  —  deep violet      (bottom-right)
-        opacity:   "60",       // Base fill opacity  (%)
-        driftDur:  "10",       // Gradient drift duration  (seconds)
-        driftPct:  "6",        // Drift magnitude  (% of shorter comp dimension)
-        vertDrift: "20",       // Vertical position drift  (px, upward)
-        blackLift: "20",       // Levels Output Black lift  (0–255)
-        inset:     "15"        // Colour-point corner inset  (%)
+        opacity:   60,         // Base fill opacity  (%)
+        driftDur:  10,         // Gradient drift duration  (seconds)
+        driftPct:  6,          // Drift magnitude  (% of shorter comp dimension)
+        vertDrift: 20,         // Vertical position drift  (px, upward)
+        blackLift: 20,         // Levels Output Black  (0–255)
+        inset:     15          // Colour-point corner inset  (%)
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // CORE HELPERS  (shared by the effect engine)
+    // CORE HELPERS
     // ─────────────────────────────────────────────────────────────────────────
 
     function hexToAE(hex) {
@@ -92,6 +92,37 @@
         }
     }
 
+    /**
+     * Robust active-comp finder.
+     * Clicking a floating palette button can cause app.project.activeItem
+     * to lose focus and return null. This falls back to scanning for a comp
+     * that has a selected layer, then any open comp.
+     */
+    function findActiveComp() {
+        var item = app.project.activeItem;
+        if (item instanceof CompItem) { return item; }
+
+        // Fallback 1: comp with a selected layer
+        for (var i = 1; i <= app.project.numItems; i++) {
+            try {
+                item = app.project.items[i];
+                if (item instanceof CompItem && item.selectedLayers.length > 0) {
+                    return item;
+                }
+            } catch (e) {}
+        }
+
+        // Fallback 2: first comp in the project
+        for (var j = 1; j <= app.project.numItems; j++) {
+            try {
+                item = app.project.items[j];
+                if (item instanceof CompItem) { return item; }
+            } catch (e) {}
+        }
+
+        return null;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // VALIDATION
     // ─────────────────────────────────────────────────────────────────────────
@@ -111,50 +142,44 @@
 
     // ─────────────────────────────────────────────────────────────────────────
     // EFFECT ENGINE
+    // Throws a descriptive Error on any failure — caller shows it in UI.
+    // Never calls alert() directly; all feedback goes through the status bar.
     // ─────────────────────────────────────────────────────────────────────────
 
     function applyEffect(params) {
 
-        // ── Comp / layer validation ──────────────────────────────────────────
+        // ── Comp / layer checks ──────────────────────────────────────────────
 
-        var comp = app.project.activeItem;
-        if (!comp || !(comp instanceof CompItem)) {
-            alert("Please open a composition first.");
-            return;
+        var comp = findActiveComp();
+        if (!comp) {
+            throw new Error("No composition found. Open a comp and try again.");
         }
         if (comp.selectedLayers.length === 0) {
-            alert("Please select a text layer.");
-            return;
+            throw new Error("No layer selected. Click a text layer in the Timeline first.");
         }
         var origLayer = comp.selectedLayers[0];
         if (!(origLayer instanceof TextLayer)) {
-            alert("Selected layer must be a text layer.");
-            return;
+            throw new Error("Selected layer is not a text layer. Select a text layer and try again.");
         }
 
         // ── Param validation ─────────────────────────────────────────────────
 
         var errs = [];
-        var c1  = validateHex(params.c1);       if (!c1)  { errs.push("Color 1 is not a valid hex value."); }
-        var c2  = validateHex(params.c2);       if (!c2)  { errs.push("Color 2 is not a valid hex value."); }
-        var c3  = validateHex(params.c3);       if (!c3)  { errs.push("Color 3 is not a valid hex value."); }
-        var c4  = validateHex(params.c4);       if (!c4)  { errs.push("Color 4 is not a valid hex value."); }
-        var opa = validateNum(params.opacity,  0, 100);  if (opa  === null) { errs.push("Opacity must be 0–100."); }
-        var dDr = validateNum(params.driftDur, 0);       if (dDr  === null) { errs.push("Drift duration must be >= 0."); }
-        var dPc = validateNum(params.driftPct, 0, 100);  if (dPc  === null) { errs.push("Drift amount must be 0–100."); }
-        var vDr = validateNum(params.vertDrift);         if (vDr  === null) { errs.push("Vertical drift must be a number."); }
-        var bLf = validateNum(params.blackLift, 0, 254); if (bLf  === null) { errs.push("Black-point lift must be 0–254."); }
-        var ins = validateNum(params.inset,     1,  49); if (ins  === null) { errs.push("Corner inset must be 1–49."); }
-
-        if (errs.length > 0) {
-            alert("Please fix the following:\n\n• " + errs.join("\n• "));
-            return;
-        }
+        var c1  = validateHex(params.c1);       if (!c1)  { errs.push("Color 1 — not a valid hex (e.g. 2E4A7A)"); }
+        var c2  = validateHex(params.c2);       if (!c2)  { errs.push("Color 2 — not a valid hex"); }
+        var c3  = validateHex(params.c3);       if (!c3)  { errs.push("Color 3 — not a valid hex"); }
+        var c4  = validateHex(params.c4);       if (!c4)  { errs.push("Color 4 — not a valid hex"); }
+        var opa = validateNum(params.opacity,  0, 100);  if (opa  === null) { errs.push("Opacity: must be 0–100"); }
+        var dDr = validateNum(params.driftDur, 1,  30);  if (dDr  === null) { errs.push("Gradient drift: must be 1–30"); }
+        var dPc = validateNum(params.driftPct, 0,  20);  if (dPc  === null) { errs.push("Drift amount: must be 0–20"); }
+        var vDr = validateNum(params.vertDrift);          if (vDr  === null) { errs.push("Vertical drift: must be a number"); }
+        var bLf = validateNum(params.blackLift, 0, 254);  if (bLf  === null) { errs.push("Black-point lift: must be 0–254"); }
+        var ins = validateNum(params.inset,     1,  49);  if (ins  === null) { errs.push("Corner inset: must be 1–49"); }
+        if (errs.length > 0) { throw new Error("Fix these values:\n• " + errs.join("\n• ")); }
 
         // ── Build ────────────────────────────────────────────────────────────
 
         app.beginUndoGroup("Sky Text Effect");
-
         try {
             var W        = comp.width;
             var H        = comp.height;
@@ -175,10 +200,7 @@
 
             // 3 — 4-Color Gradient
             var fx4 = addFx(solid, ["ADBE 4-Color Gradient", "4-Color Gradient"]);
-            if (!fx4) {
-                throw new Error("Could not add 4-Color Gradient.\n" +
-                                "Check: Effect > Generate > 4-Color Gradient.");
-            }
+            if (!fx4) { throw new Error("Could not add 4-Color Gradient. Check Effect > Generate."); }
 
             var colDefs = [
                 { opts: ["ADBE 4col-c1", "Color 1", 4],  val: hexToAE(c1) },
@@ -188,19 +210,13 @@
             ];
             for (var ci = 0; ci < colDefs.length; ci++) {
                 if (!setProp(fx4, colDefs[ci].opts, colDefs[ci].val)) {
-                    warnings.push("Color " + (ci + 1) + " could not be set.");
+                    warnings.push("Color " + (ci + 1) + " not set — set it manually in Effect Controls.");
                 }
             }
 
             // Animated point positions
-            var ix  = W * (ins / 100);
-            var iy  = H * (ins / 100);
-            var ptStarts = [
-                [ix,     iy    ],
-                [W - ix, iy    ],
-                [ix,     H - iy],
-                [W - ix, H - iy]
-            ];
+            var ix = W * (ins / 100), iy = H * (ins / 100);
+            var ptStarts = [[ix, iy], [W-ix, iy], [ix, H-iy], [W-ix, H-iy]];
             var dv = Math.min(W, H) * (dPc / 100);
             var ptDeltas = [
                 [ dv,        dv * 0.40],
@@ -223,9 +239,9 @@
                         ptProp.setValueAtTime(0,    [s[0],         s[1]        ]);
                         ptProp.setValueAtTime(kDur, [s[0] + dl[0], s[1] + dl[1]]);
                         easyEaseAll(ptProp);
-                    } catch (e) { warnings.push("Point " + (pi + 1) + " keyframes: " + e.message); }
+                    } catch (e) { warnings.push("Point " + (pi+1) + ": " + e.message); }
                 } else {
-                    warnings.push("Could not find Point " + (pi + 1) + " on gradient.");
+                    warnings.push("Point " + (pi+1) + " not found — gradient won't animate.");
                 }
             }
 
@@ -245,10 +261,10 @@
             var levFx = addFx(solid, ["ADBE Levels", "Levels"]);
             if (levFx) {
                 if (!setProp(levFx, ["ADBE Lev-outb", "Output Black", 6], bLf / 255)) {
-                    warnings.push("Levels Output Black could not be set. Set it manually to " + bLf + ".");
+                    warnings.push("Levels Output Black not set — set manually to " + bLf + ".");
                 }
             } else {
-                warnings.push("Could not add Levels effect.");
+                warnings.push("Levels effect not added.");
             }
 
             // 7 — Pre-compose
@@ -256,19 +272,17 @@
             indices.sort(function (a, b) { return a - b; });
             comp.layers.precompose(indices, "SKY_TEXT_EFFECT", true);
 
-            var msg = "Done!  'SKY_TEXT_EFFECT' added to timeline.\n\n" +
-                      "Inside the pre-comp:\n" +
-                      "  " + origName + "  (Alpha Matte)\n" +
-                      "  SKY_GRADIENT\n" +
-                      "  " + origName + "_BASE  (base fill)";
+            // Return result string for the status bar
+            var result = "Done! SKY_TEXT_EFFECT added to timeline.";
             if (warnings.length > 0) {
-                msg += "\n\nWarnings:\n• " + warnings.join("\n• ");
+                result += " (" + warnings.length + " warning" +
+                          (warnings.length > 1 ? "s" : "") + " — see console)";
+                for (var wi = 0; wi < warnings.length; wi++) {
+                    $.writeln("Sky Text Effect warning: " + warnings[wi]);
+                }
             }
-            alert(msg);
+            return result;
 
-        } catch (err) {
-            alert("Sky Text Effect failed:\n\n" + err.toString() +
-                  (err.line !== undefined ? "\nLine: " + err.line : ""));
         } finally {
             app.endUndoGroup();
         }
@@ -289,13 +303,12 @@
         win.margins       = [12, 12, 12, 12];
         win.spacing       = 8;
 
-        // ── Title ────────────────────────────────────────────────────────────
+        // ── Title ─────────────────────────────────────────────────────────────
 
         var titleLbl = win.add("statictext", undefined, "SKY TEXT EFFECT");
         titleLbl.alignment = ["center", "top"];
 
-        // ── Helper: hex colour row ────────────────────────────────────────────
-        // Returns the edittext field.
+        // ── Helper: hex colour row ─────────────────────────────────────────────
 
         function makeColorRow(parent, labelStr, defaultHex, hintStr) {
             var row = parent.add("group");
@@ -332,7 +345,7 @@
             lbl.preferredSize = [108, -1];
 
             var sldr = row.add("slider", undefined, defVal, minVal, maxVal);
-            sldr.alignment    = ["fill", "center"];
+            sldr.alignment     = ["fill", "center"];
             sldr.preferredSize = [-1, 16];
 
             var field = row.add("edittext", undefined, String(defVal));
@@ -343,7 +356,6 @@
                 uLbl.preferredSize = [28, -1];
             }
 
-            // Keep slider and field in sync
             sldr.onChanging = function () {
                 field.text = String(Math.round(sldr.value));
             };
@@ -376,12 +388,12 @@
         setPanel.margins       = [10, 14, 10, 10];
         setPanel.spacing       = 6;
 
-        var r_opa = makeSliderRow(setPanel, "Base fill opacity",  60,  0, 100, "%");
-        var r_dDr = makeSliderRow(setPanel, "Gradient drift",     10,  1,  30, "s");
-        var r_dPc = makeSliderRow(setPanel, "Drift amount",        6,  0,  20, "%");
-        var r_vDr = makeSliderRow(setPanel, "Vertical drift",     20,  0, 100, "px");
-        var r_bLf = makeSliderRow(setPanel, "Black-point lift",   20,  0, 100, "/255");
-        var r_ins = makeSliderRow(setPanel, "Corner inset",       15,  1,  49, "%");
+        var r_opa = makeSliderRow(setPanel, "Base fill opacity",  DEFAULTS.opacity,    0, 100, "%");
+        var r_dDr = makeSliderRow(setPanel, "Gradient drift",     DEFAULTS.driftDur,   1,  30, "s");
+        var r_dPc = makeSliderRow(setPanel, "Drift amount",       DEFAULTS.driftPct,   0,  20, "%");
+        var r_vDr = makeSliderRow(setPanel, "Vertical drift",     DEFAULTS.vertDrift,  0, 100, "px");
+        var r_bLf = makeSliderRow(setPanel, "Black-point lift",   DEFAULTS.blackLift,  0, 100, "/255");
+        var r_ins = makeSliderRow(setPanel, "Corner inset",       DEFAULTS.inset,      1,  49, "%");
 
         // ── Buttons ───────────────────────────────────────────────────────────
 
@@ -399,38 +411,39 @@
         applyBtn.preferredSize = [-1, 26];
 
         // ── Status bar ────────────────────────────────────────────────────────
+        // All feedback goes here — no alert() dialogs that could hide behind panel.
 
-        var statusBar = win.add("statictext", undefined,
-            "Select a text layer, then click Apply.");
-        statusBar.alignment = ["fill", "bottom"];
+        var statusBar = win.add("statictext", undefined, "Select a text layer, then click Apply.");
+        statusBar.alignment   = ["fill", "bottom"];
+        statusBar.preferredSize = [-1, 28];
 
-        // ── Reset handler ─────────────────────────────────────────────────────
+        function setStatus(msg) {
+            statusBar.text = msg;
+            win.update();
+        }
+
+        // ── Reset ─────────────────────────────────────────────────────────────
 
         resetBtn.onClick = function () {
             f_c1.text = DEFAULTS.c1;
             f_c2.text = DEFAULTS.c2;
             f_c3.text = DEFAULTS.c3;
             f_c4.text = DEFAULTS.c4;
-
-            r_opa.field.text = "60";  r_opa.slider.value = 60;
-            r_dDr.field.text = "10";  r_dDr.slider.value = 10;
-            r_dPc.field.text = "6";   r_dPc.slider.value = 6;
-            r_vDr.field.text = "20";  r_vDr.slider.value = 20;
-            r_bLf.field.text = "20";  r_bLf.slider.value = 20;
-            r_ins.field.text = "15";  r_ins.slider.value = 15;
-
-            statusBar.text = "Reset to defaults.";
-            win.update();
+            r_opa.field.text = String(DEFAULTS.opacity);    r_opa.slider.value = DEFAULTS.opacity;
+            r_dDr.field.text = String(DEFAULTS.driftDur);   r_dDr.slider.value = DEFAULTS.driftDur;
+            r_dPc.field.text = String(DEFAULTS.driftPct);   r_dPc.slider.value = DEFAULTS.driftPct;
+            r_vDr.field.text = String(DEFAULTS.vertDrift);  r_vDr.slider.value = DEFAULTS.vertDrift;
+            r_bLf.field.text = String(DEFAULTS.blackLift);  r_bLf.slider.value = DEFAULTS.blackLift;
+            r_ins.field.text = String(DEFAULTS.inset);      r_ins.slider.value = DEFAULTS.inset;
+            setStatus("Reset to defaults.");
         };
 
-        // ── Apply handler ─────────────────────────────────────────────────────
+        // ── Apply ─────────────────────────────────────────────────────────────
 
         applyBtn.onClick = function () {
-            statusBar.text = "Running…";
-            win.update();
-
+            setStatus("Running…");
             try {
-                applyEffect({
+                var result = applyEffect({
                     c1:        f_c1.text,
                     c2:        f_c2.text,
                     c3:        f_c3.text,
@@ -442,13 +455,10 @@
                     blackLift: r_bLf.field.text,
                     inset:     r_ins.field.text
                 });
-                statusBar.text = "Done! SKY_TEXT_EFFECT added to timeline.";
+                setStatus(result);
             } catch (e) {
-                statusBar.text = "Error — see alert.";
-                alert("Sky Text Effect error:\n\n" + e.toString() +
-                      (e.line !== undefined ? "\nLine: " + e.line : ""));
+                setStatus("ERROR: " + e.message);
             }
-            win.update();
         };
 
         return win;
