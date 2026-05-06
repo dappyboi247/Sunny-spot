@@ -174,7 +174,8 @@
             setStatus("Test clicked.");
         };
 
-        $.global.skyTextDoApply = function () {
+        applyBtn.onClick = function () {
+            setStatus("Running...");
             try {
                 var result = buildEffect({
                     c1: c1.text,
@@ -187,11 +188,6 @@
             } catch (e) {
                 setStatus("ERROR: " + e.message);
             }
-        };
-
-        applyBtn.onClick = function () {
-            setStatus("Running...");
-            app.scheduleTask("$.global.skyTextDoApply()", 20, false);
         };
 
         return win;
