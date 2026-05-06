@@ -282,56 +282,29 @@
 
         var win = (thisObj instanceof Panel)
             ? thisObj
-            : new Window("palette", "Sky Text Effect", undefined, { resizeable: false });
+            : new Window("palette", "Sky Text Effect", undefined, { resizeable: true });
 
-        win.orientation    = "column";
-        win.alignChildren  = ["fill", "top"];
-        win.margins        = [12, 12, 12, 12];
-        win.spacing        = 8;
+        win.orientation   = "column";
+        win.alignChildren = ["fill", "top"];
+        win.margins       = [12, 12, 12, 12];
+        win.spacing       = 8;
 
         // ── Title ────────────────────────────────────────────────────────────
 
-        var titleGroup = win.add("group");
-        titleGroup.alignment = ["fill", "top"];
-        titleGroup.orientation = "row";
-        titleGroup.margins = [0, 0, 0, 4];
+        var titleLbl = win.add("statictext", undefined, "SKY TEXT EFFECT");
+        titleLbl.alignment = ["center", "top"];
 
-        var titleText = titleGroup.add("statictext", undefined, "SKY TEXT EFFECT");
-        titleText.alignment = ["center", "center"];
-
-        // ── Helper: create a row with a label and a text field ───────────────
-
-        function makeRow(parent, labelStr, defaultVal, unitsStr) {
-            var row = parent.add("group");
-            row.orientation   = "row";
-            row.alignment     = ["fill", "top"];
-            row.alignChildren = ["left", "center"];
-            row.spacing       = 6;
-
-            var lbl = row.add("statictext", undefined, labelStr);
-            lbl.preferredSize = [118, -1];
-
-            var field = row.add("edittext", undefined, String(defaultVal));
-            field.preferredSize = [58, -1];
-
-            if (unitsStr) {
-                var uLbl = row.add("statictext", undefined, unitsStr);
-                uLbl.preferredSize = [28, -1];
-            }
-            return field;
-        }
-
-        // ── Helper: colour row (# prefix + hex field + name hint) ────────────
+        // ── Helper: hex colour row ────────────────────────────────────────────
+        // Returns the edittext field.
 
         function makeColorRow(parent, labelStr, defaultHex, hintStr) {
             var row = parent.add("group");
             row.orientation   = "row";
-            row.alignment     = ["fill", "top"];
             row.alignChildren = ["left", "center"];
             row.spacing       = 4;
 
             var lbl = row.add("statictext", undefined, labelStr);
-            lbl.preferredSize = [74, -1];
+            lbl.preferredSize = [82, -1];
 
             row.add("statictext", undefined, "#");
 
@@ -340,25 +313,62 @@
 
             if (hintStr) {
                 var hint = row.add("statictext", undefined, hintStr);
-                hint.preferredSize = [80, -1];
+                hint.preferredSize = [84, -1];
             }
             return field;
         }
 
-        // ── Colours panel ────────────────────────────────────────────────────
+        // ── Helper: slider row ────────────────────────────────────────────────
+        // Returns { field, slider } so reset can update both.
+
+        function makeSliderRow(parent, labelStr, defVal, minVal, maxVal, unitsStr) {
+            var row = parent.add("group");
+            row.orientation   = "row";
+            row.alignment     = ["fill", "top"];
+            row.alignChildren = ["left", "center"];
+            row.spacing       = 6;
+
+            var lbl = row.add("statictext", undefined, labelStr);
+            lbl.preferredSize = [108, -1];
+
+            var sldr = row.add("slider", undefined, defVal, minVal, maxVal);
+            sldr.alignment    = ["fill", "center"];
+            sldr.preferredSize = [-1, 16];
+
+            var field = row.add("edittext", undefined, String(defVal));
+            field.preferredSize = [38, -1];
+
+            if (unitsStr) {
+                var uLbl = row.add("statictext", undefined, unitsStr);
+                uLbl.preferredSize = [28, -1];
+            }
+
+            // Keep slider and field in sync
+            sldr.onChanging = function () {
+                field.text = String(Math.round(sldr.value));
+            };
+            field.onChange = function () {
+                var n = parseFloat(field.text);
+                if (!isNaN(n)) { sldr.value = Math.min(maxVal, Math.max(minVal, n)); }
+            };
+
+            return { field: field, slider: sldr };
+        }
+
+        // ── Colours panel ─────────────────────────────────────────────────────
 
         var colPanel = win.add("panel", undefined, "Colours");
         colPanel.orientation   = "column";
         colPanel.alignChildren = ["fill", "top"];
         colPanel.margins       = [10, 14, 10, 10];
-        colPanel.spacing       = 6;
+        colPanel.spacing       = 5;
 
         var f_c1 = makeColorRow(colPanel, "Corner 1 (↖)", DEFAULTS.c1, "deep sky blue");
         var f_c2 = makeColorRow(colPanel, "Corner 2 (↗)", DEFAULTS.c2, "dusty rose");
         var f_c3 = makeColorRow(colPanel, "Corner 3 (↙)", DEFAULTS.c3, "amber orange");
         var f_c4 = makeColorRow(colPanel, "Corner 4 (↘)", DEFAULTS.c4, "deep violet");
 
-        // ── Settings panel ───────────────────────────────────────────────────
+        // ── Settings panel ────────────────────────────────────────────────────
 
         var setPanel = win.add("panel", undefined, "Settings");
         setPanel.orientation   = "column";
@@ -366,14 +376,14 @@
         setPanel.margins       = [10, 14, 10, 10];
         setPanel.spacing       = 6;
 
-        var f_opa = makeRow(setPanel, "Base fill opacity",    DEFAULTS.opacity,   "%");
-        var f_dDr = makeRow(setPanel, "Gradient drift",       DEFAULTS.driftDur,  "s");
-        var f_dPc = makeRow(setPanel, "Drift amount",         DEFAULTS.driftPct,  "%");
-        var f_vDr = makeRow(setPanel, "Vertical drift",       DEFAULTS.vertDrift, "px");
-        var f_bLf = makeRow(setPanel, "Black-point lift",     DEFAULTS.blackLift, "/255");
-        var f_ins = makeRow(setPanel, "Corner inset",         DEFAULTS.inset,     "%");
+        var r_opa = makeSliderRow(setPanel, "Base fill opacity",  60,  0, 100, "%");
+        var r_dDr = makeSliderRow(setPanel, "Gradient drift",     10,  1,  30, "s");
+        var r_dPc = makeSliderRow(setPanel, "Drift amount",        6,  0,  20, "%");
+        var r_vDr = makeSliderRow(setPanel, "Vertical drift",     20,  0, 100, "px");
+        var r_bLf = makeSliderRow(setPanel, "Black-point lift",   20,  0, 100, "/255");
+        var r_ins = makeSliderRow(setPanel, "Corner inset",       15,  1,  49, "%");
 
-        // ── Reset + Apply buttons ─────────────────────────────────────────────
+        // ── Buttons ───────────────────────────────────────────────────────────
 
         var btnGroup = win.add("group");
         btnGroup.orientation   = "row";
@@ -390,47 +400,55 @@
 
         // ── Status bar ────────────────────────────────────────────────────────
 
-        var statusBar = win.add("statictext", undefined, "Ready — select a text layer, then click Apply.");
-        statusBar.alignment    = ["fill", "bottom"];
-        statusBar.justify      = "left";
+        var statusBar = win.add("statictext", undefined,
+            "Select a text layer, then click Apply.");
+        statusBar.alignment = ["fill", "bottom"];
 
-        // ── Button handlers ───────────────────────────────────────────────────
+        // ── Reset handler ─────────────────────────────────────────────────────
 
         resetBtn.onClick = function () {
-            f_c1.text  = DEFAULTS.c1;
-            f_c2.text  = DEFAULTS.c2;
-            f_c3.text  = DEFAULTS.c3;
-            f_c4.text  = DEFAULTS.c4;
-            f_opa.text = DEFAULTS.opacity;
-            f_dDr.text = DEFAULTS.driftDur;
-            f_dPc.text = DEFAULTS.driftPct;
-            f_vDr.text = DEFAULTS.vertDrift;
-            f_bLf.text = DEFAULTS.blackLift;
-            f_ins.text = DEFAULTS.inset;
+            f_c1.text = DEFAULTS.c1;
+            f_c2.text = DEFAULTS.c2;
+            f_c3.text = DEFAULTS.c3;
+            f_c4.text = DEFAULTS.c4;
+
+            r_opa.field.text = "60";  r_opa.slider.value = 60;
+            r_dDr.field.text = "10";  r_dDr.slider.value = 10;
+            r_dPc.field.text = "6";   r_dPc.slider.value = 6;
+            r_vDr.field.text = "20";  r_vDr.slider.value = 20;
+            r_bLf.field.text = "20";  r_bLf.slider.value = 20;
+            r_ins.field.text = "15";  r_ins.slider.value = 15;
+
             statusBar.text = "Reset to defaults.";
+            win.update();
         };
+
+        // ── Apply handler ─────────────────────────────────────────────────────
 
         applyBtn.onClick = function () {
             statusBar.text = "Running…";
+            win.update();
+
             try {
                 applyEffect({
                     c1:        f_c1.text,
                     c2:        f_c2.text,
                     c3:        f_c3.text,
                     c4:        f_c4.text,
-                    opacity:   f_opa.text,
-                    driftDur:  f_dDr.text,
-                    driftPct:  f_dPc.text,
-                    vertDrift: f_vDr.text,
-                    blackLift: f_bLf.text,
-                    inset:     f_ins.text
+                    opacity:   r_opa.field.text,
+                    driftDur:  r_dDr.field.text,
+                    driftPct:  r_dPc.field.text,
+                    vertDrift: r_vDr.field.text,
+                    blackLift: r_bLf.field.text,
+                    inset:     r_ins.field.text
                 });
-                statusBar.text = "Done! Check your timeline.";
+                statusBar.text = "Done! SKY_TEXT_EFFECT added to timeline.";
             } catch (e) {
                 statusBar.text = "Error — see alert.";
-                alert("Sky Text Effect — unexpected error:\n\n" + e.toString() +
+                alert("Sky Text Effect error:\n\n" + e.toString() +
                       (e.line !== undefined ? "\nLine: " + e.line : ""));
             }
+            win.update();
         };
 
         return win;
