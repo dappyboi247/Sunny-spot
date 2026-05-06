@@ -1,75 +1,49 @@
 /**
  * sky_text_effect.jsx  -  "Sky Inside Letters"
  * ─────────────────────────────────────────────────────────────────────────────
- * Adobe After Effects ExtendScript plugin
+ * Adobe After Effects ExtendScript  |  ScriptUI Panel
  *
- * USAGE
- *   File > Scripts > Run Script File...
- *   Save to [AE]/Scripts/ to access from the Scripts menu.
- *   Save to [AE]/Scripts/ScriptUI Panels/ for panel-menu access.
+ * INSTALLATION (dockable panel)
+ *   Copy to: [AE app folder] / Scripts / ScriptUI Panels /
+ *   Restart AE, then: Window > sky_text_effect.jsx
+ *
+ * INSTALLATION (run once)
+ *   File > Scripts > Run Script File…  and pick this file.
  *
  * HOW TO USE
- *   1. Open your composition in After Effects.
- *   2. Select exactly one text layer in the Timeline.
- *   3. Run this script.
- *   4. A "SKY_TEXT_EFFECT" pre-comp is built containing all generated layers.
- *
- * WHAT IS BUILT (inside the SKY_TEXT_EFFECT pre-comp)
- *   (bottom) <name>_BASE    - 60 % opacity duplicate of the text layer.
- *            SKY_GRADIENT   - full-comp solid with a 4-Color Gradient, clipped
- *                             to letterform shapes via Alpha Matte.
- *            <origLayer>    - original text layer (acts as the Alpha Matte).
- *
- * NOTES
- *   - Non-fatal property failures are listed in the completion dialog so you
- *     can see exactly what succeeded and what needs manual tweaking.
- *   - Levels is used for the black-point lift because the Curves effect's
- *     internal curve-data format cannot be reliably written via ExtendScript
- *     across all AE versions. The visual result is identical.
- *
- * UNDO
- *   Edit > Undo Sky Text Effect  (single undo step).
- *
- * REQUIREMENTS
- *   Adobe After Effects CC 2014 (13.0) or later.
- *   Built-in "4-Color Gradient" effect (Effect > Generate).
+ *   1. Open a composition with at least one text layer.
+ *   2. Select the text layer in the Timeline.
+ *   3. Adjust colours / settings in the panel as desired.
+ *   4. Click  Apply Effect.
+ *   5. A "SKY_TEXT_EFFECT" pre-comp is built in the timeline.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-(function skyTextEffect() {
+(function (thisObj) {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // VALIDATION
+    // DEFAULTS
     // ─────────────────────────────────────────────────────────────────────────
 
-    var comp = app.project.activeItem;
-
-    if (!comp || !(comp instanceof CompItem)) {
-        alert("Please open a composition first.");
-        return;
-    }
-
-    if (comp.selectedLayers.length === 0) {
-        alert("Please select a text layer.");
-        return;
-    }
-
-    var origLayer = comp.selectedLayers[0];
-
-    if (!(origLayer instanceof TextLayer)) {
-        alert("Selected layer must be a text layer.");
-        return;
-    }
+    var DEFAULTS = {
+        c1:        "2E4A7A",   // Corner 1  —  deep sky blue    (top-left)
+        c2:        "C06C84",   // Corner 2  —  dusty rose       (top-right)
+        c3:        "FF8C42",   // Corner 3  —  amber orange     (bottom-left)
+        c4:        "1A0A2E",   // Corner 4  —  deep violet      (bottom-right)
+        opacity:   "60",       // Base fill opacity  (%)
+        driftDur:  "10",       // Gradient drift duration  (seconds)
+        driftPct:  "6",        // Drift magnitude  (% of shorter comp dimension)
+        vertDrift: "20",       // Vertical position drift  (px, upward)
+        blackLift: "20",       // Levels Output Black lift  (0–255)
+        inset:     "15"        // Colour-point corner inset  (%)
+    };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HELPERS
+    // CORE HELPERS  (shared by the effect engine)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Convert a 6-char hex string (no "#") to an AE [r,g,b,a] colour array
-     * with values in the 0–1 range.
-     */
     function hexToAE(hex) {
+        hex = hex.replace(/^#/, "").trim();
         return [
             parseInt(hex.substr(0, 2), 16) / 255,
             parseInt(hex.substr(2, 2), 16) / 255,
@@ -78,26 +52,13 @@
         ];
     }
 
-    /**
-     * Find a property on `parent` by trying each entry in `options` in order.
-     * Each entry can be a string (match-name or display-name) or a number (index).
-     * Returns the first Property found, or null if none succeed.
-     */
     function findProp(parent, options) {
         for (var i = 0; i < options.length; i++) {
-            try {
-                var p = parent.property(options[i]);
-                if (p) { return p; }
-            } catch (e) {}
+            try { var p = parent.property(options[i]); if (p) { return p; } } catch (e) {}
         }
         return null;
     }
 
-    /**
-     * Add an effect to `layer` by trying each name in `nameOptions`.
-     * Tries both "ADBE Effect Parade" and "Effects" as the parent group.
-     * Returns the new effect PropertyGroup, or null on total failure.
-     */
     function addFx(layer, nameOptions) {
         var groupKeys = ["ADBE Effect Parade", "Effects"];
         for (var gi = 0; gi < groupKeys.length; gi++) {
@@ -111,239 +72,366 @@
         return null;
     }
 
-    /**
-     * Find a property on `parent` using `options` and set its value.
-     * Returns true on success, false if the property was not found or setValue failed.
-     */
     function setProp(parent, options, value) {
         var p = findProp(parent, options);
         if (!p) { return false; }
         try { p.setValue(value); return true; } catch (e) { return false; }
     }
 
-    /**
-     * Apply Easy Ease (velocity 0, influence 33.33 %) to every keyframe of
-     * `prop`.  Handles both scalar and multi-dimensional properties.
-     * Silently ignores spatial-only properties that don't support temporal easing.
-     */
     function easyEaseAll(prop) {
         var n = prop.numKeys;
         if (n < 1) { return; }
-
         var dims = 1;
-        try {
-            var v = prop.value;
-            if (v && typeof v.length === "number" && v.length > 1) {
-                dims = v.length;
-            }
-        } catch (e) {}
-
+        try { var v = prop.value; if (v && typeof v.length === "number" && v.length > 1) { dims = v.length; } } catch (e) {}
         var ei = new KeyframeEase(0, 33.33);
         var eo = new KeyframeEase(0, 33.33);
-        var inArr  = [];
-        var outArr = [];
-        for (var d = 0; d < dims; d++) { inArr.push(ei); outArr.push(eo); }
-
+        var ia = [], oa = [];
+        for (var d = 0; d < dims; d++) { ia.push(ei); oa.push(eo); }
         for (var k = 1; k <= n; k++) {
-            try { prop.setTemporalEasingAtKey(k, inArr, outArr); } catch (e) {}
+            try { prop.setTemporalEasingAtKey(k, ia, oa); } catch (e) {}
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // BUILD EFFECT
+    // VALIDATION
     // ─────────────────────────────────────────────────────────────────────────
 
-    app.beginUndoGroup("Sky Text Effect");
+    function validateHex(str) {
+        var s = str.replace(/^#/, "").trim();
+        return /^[0-9A-Fa-f]{6}$/.test(s) ? s : null;
+    }
 
-    try {
-        var W        = comp.width;
-        var H        = comp.height;
-        var dur      = comp.duration;
-        var origName = origLayer.name;
-        var warnings = []; // non-fatal issues reported at the end
+    function validateNum(str, min, max) {
+        var n = parseFloat(str);
+        if (isNaN(n)) { return null; }
+        if (min !== undefined && n < min) { return null; }
+        if (max !== undefined && n > max) { return null; }
+        return n;
+    }
 
-        // ── ① Base fill ──────────────────────────────────────────────────────
-        // Duplicate the text layer → rename → push to bottom → 60 % opacity.
-        // Keeps letterforms readable when the sky gradient is very dark.
+    // ─────────────────────────────────────────────────────────────────────────
+    // EFFECT ENGINE
+    // ─────────────────────────────────────────────────────────────────────────
 
-        var baseLayer = origLayer.duplicate();
-        baseLayer.name = origName + "_BASE";
-        baseLayer.moveToEnd();
-        if (!setProp(baseLayer, ["Transform/Opacity", "Opacity", "ADBE Opacity"], 60)) {
-            // Belt-and-suspenders: set via the Transform group path
-            try {
-                baseLayer.property("Transform").property("Opacity").setValue(60);
-            } catch (e) {
-                warnings.push("Base layer opacity: " + e.message);
-            }
+    function applyEffect(params) {
+
+        // ── Comp / layer validation ──────────────────────────────────────────
+
+        var comp = app.project.activeItem;
+        if (!comp || !(comp instanceof CompItem)) {
+            alert("Please open a composition first.");
+            return;
+        }
+        if (comp.selectedLayers.length === 0) {
+            alert("Please select a text layer.");
+            return;
+        }
+        var origLayer = comp.selectedLayers[0];
+        if (!(origLayer instanceof TextLayer)) {
+            alert("Selected layer must be a text layer.");
+            return;
         }
 
-        // ── ② SKY_GRADIENT solid ─────────────────────────────────────────────
-        // White solid, same size as the comp. The gradient effect paints over it.
+        // ── Param validation ─────────────────────────────────────────────────
 
-        var solid = comp.layers.addSolid([1, 1, 1], "SKY_GRADIENT", W, H, 1, dur);
+        var errs = [];
+        var c1  = validateHex(params.c1);       if (!c1)  { errs.push("Color 1 is not a valid hex value."); }
+        var c2  = validateHex(params.c2);       if (!c2)  { errs.push("Color 2 is not a valid hex value."); }
+        var c3  = validateHex(params.c3);       if (!c3)  { errs.push("Color 3 is not a valid hex value."); }
+        var c4  = validateHex(params.c4);       if (!c4)  { errs.push("Color 4 is not a valid hex value."); }
+        var opa = validateNum(params.opacity,  0, 100);  if (opa  === null) { errs.push("Opacity must be 0–100."); }
+        var dDr = validateNum(params.driftDur, 0);       if (dDr  === null) { errs.push("Drift duration must be >= 0."); }
+        var dPc = validateNum(params.driftPct, 0, 100);  if (dPc  === null) { errs.push("Drift amount must be 0–100."); }
+        var vDr = validateNum(params.vertDrift);         if (vDr  === null) { errs.push("Vertical drift must be a number."); }
+        var bLf = validateNum(params.blackLift, 0, 254); if (bLf  === null) { errs.push("Black-point lift must be 0–254."); }
+        var ins = validateNum(params.inset,     1,  49); if (ins  === null) { errs.push("Corner inset must be 1–49."); }
 
-        // Place solid directly BELOW the original text layer.
-        // AE track-matte rule: the matte layer must be immediately ABOVE the
-        // matted layer.  After this call origLayer is at (solid.index - 1).
-        solid.moveAfter(origLayer);
-
-        // ── ③ 4-Color Gradient effect ────────────────────────────────────────
-
-        var fx4 = addFx(solid, ["ADBE 4-Color Gradient", "4-Color Gradient"]);
-        if (!fx4) {
-            throw new Error(
-                "Could not add the 4-Color Gradient effect.\n" +
-                "Verify it is available: Effect > Generate > 4-Color Gradient."
-            );
+        if (errs.length > 0) {
+            alert("Please fix the following:\n\n• " + errs.join("\n• "));
+            return;
         }
 
-        // ─ Static colours ─
-        // Each colour is tried by match-name, display-name, then property index.
-        // Indices in the 4-Color Gradient effect: c1=4, c2=6, c3=8, c4=10
-        // (odd indices 3,5,7,9 are the paired position/point properties).
+        // ── Build ────────────────────────────────────────────────────────────
 
-        var colDefs = [
-            { opts: ["ADBE 4col-c1", "Color 1", 4],  val: hexToAE("2E4A7A") }, // deep sky blue
-            { opts: ["ADBE 4col-c2", "Color 2", 6],  val: hexToAE("C06C84") }, // dusty rose
-            { opts: ["ADBE 4col-c3", "Color 3", 8],  val: hexToAE("FF8C42") }, // amber orange
-            { opts: ["ADBE 4col-c4", "Color 4", 10], val: hexToAE("1A0A2E") }  // deep violet
-        ];
-        for (var ci = 0; ci < colDefs.length; ci++) {
-            if (!setProp(fx4, colDefs[ci].opts, colDefs[ci].val)) {
-                warnings.push("Color " + (ci + 1) + " could not be set on the gradient.");
-            }
-        }
-
-        // ─ Animated colour-point positions ─
-        // Each colour has an associated 2-D point in comp space.  Drifting
-        // these points slowly creates the living-sky feel.
-
-        var ix = W * 0.15;
-        var iy = H * 0.15;
-
-        // Starting positions — each corner inset ~15 % from the edge.
-        var ptStarts = [
-            [ix,     iy    ],   // top-left
-            [W - ix, iy    ],   // top-right
-            [ix,     H - iy],   // bottom-left
-            [W - ix, H - iy]    // bottom-right
-        ];
-
-        // Each corner drifts in a distinct direction; ~6 % of shorter dimension.
-        var dv = Math.min(W, H) * 0.06;
-        var ptDeltas = [
-            [ dv,        dv * 0.40],   // top-left   → right & gently down
-            [-dv * 0.70, dv * 0.60],   // top-right  → left  & gently down
-            [ dv * 0.50,-dv * 0.50],   // bottom-left  → right & gently up
-            [-dv * 0.60,-dv * 0.70]    // bottom-right → left  & gently up
-        ];
-
-        // Point property lookup: match-name, display-name, then index fallback.
-        // Indices in the effect: p1=3, p2=5, p3=7, p4=9
-        var ptDefs = [
-            { opts: ["ADBE 4col-p1", "Point 1", 3] },
-            { opts: ["ADBE 4col-p2", "Point 2", 5] },
-            { opts: ["ADBE 4col-p3", "Point 3", 7] },
-            { opts: ["ADBE 4col-p4", "Point 4", 9] }
-        ];
-
-        // Drift plays over 10 s, capped at the comp duration.
-        var kDur = Math.min(10, dur);
-
-        for (var pi = 0; pi < 4; pi++) {
-            var ptProp = findProp(fx4, ptDefs[pi].opts);
-            if (ptProp) {
-                try {
-                    var s   = ptStarts[pi];
-                    var dlt = ptDeltas[pi];
-                    ptProp.setValueAtTime(0,    [s[0],          s[1]         ]);
-                    ptProp.setValueAtTime(kDur, [s[0] + dlt[0], s[1] + dlt[1]]);
-                    easyEaseAll(ptProp);
-                } catch (e) {
-                    warnings.push("Point " + (pi + 1) + " keyframes failed: " + e.message);
-                }
-            } else {
-                warnings.push("Could not find Point " + (pi + 1) + " on the gradient effect.");
-            }
-        }
-
-        // ── ④ Alpha Matte ────────────────────────────────────────────────────
-        // origLayer is directly above solid in the stack (see moveAfter above).
-        // ALPHA matte: AE uses the alpha channel of the layer immediately above
-        // solid (origLayer) as a mask — gradient only shows inside letterforms.
-        // AE will automatically hide the matte layer's eye icon.
-
-        solid.trackMatteType = TrackMatteType.ALPHA;
-
-        // ── ⑤ Vertical position drift ────────────────────────────────────────
-        // Solid drifts upward 20 px over the entire comp duration.
-        // Easy Ease on both keyframes gives gentle acceleration/deceleration.
+        app.beginUndoGroup("Sky Text Effect");
 
         try {
-            var posProp = solid.property("Transform").property("Position");
-            var posVal  = posProp.value;
-            var posX    = posVal[0]; // comp centre X
-            var posY    = posVal[1]; // comp centre Y
+            var W        = comp.width;
+            var H        = comp.height;
+            var dur      = comp.duration;
+            var origName = origLayer.name;
+            var warnings = [];
 
-            posProp.setValueAtTime(0,   [posX, posY     ]);
-            posProp.setValueAtTime(dur, [posX, posY - 20]);
-            easyEaseAll(posProp);
-        } catch (e) {
-            warnings.push("Position drift could not be applied: " + e.message);
-        }
+            // 1 — Base fill
+            var baseLayer = origLayer.duplicate();
+            baseLayer.name = origName + "_BASE";
+            baseLayer.moveToEnd();
+            try { baseLayer.property("Transform").property("Opacity").setValue(opa); }
+            catch (e) { warnings.push("Base opacity: " + e.message); }
 
-        // ── ⑥ Black-point lift ───────────────────────────────────────────────
-        // Levels Output Black = 20/255 ≈ 0.078 — same visual result as a Curves
-        // node mapping input 0 to output 20.  No pure black inside letterforms.
-        //
-        // AE stores Levels values in the 0–1 normalised range internally.
-        // The Curves effect is NOT used here because its CurveData internal
-        // format is not reliably writable via ExtendScript across AE versions.
+            // 2 — SKY_GRADIENT solid
+            var solid = comp.layers.addSolid([1, 1, 1], "SKY_GRADIENT", W, H, 1, dur);
+            solid.moveAfter(origLayer);
 
-        var levFx = addFx(solid, ["ADBE Levels", "Levels"]);
-        if (levFx) {
-            // Try match-name → display-name → index 6 (Output Black position)
-            if (!setProp(levFx, ["ADBE Lev-outb", "Output Black", 6], 20 / 255)) {
-                warnings.push("Levels Output Black could not be set. " +
-                              "Set it manually: Output Black = 20 (or 0.078).");
+            // 3 — 4-Color Gradient
+            var fx4 = addFx(solid, ["ADBE 4-Color Gradient", "4-Color Gradient"]);
+            if (!fx4) {
+                throw new Error("Could not add 4-Color Gradient.\n" +
+                                "Check: Effect > Generate > 4-Color Gradient.");
             }
-        } else {
-            warnings.push("Could not add Levels effect. " +
-                          "Add it manually and set Output Black to 20.");
+
+            var colDefs = [
+                { opts: ["ADBE 4col-c1", "Color 1", 4],  val: hexToAE(c1) },
+                { opts: ["ADBE 4col-c2", "Color 2", 6],  val: hexToAE(c2) },
+                { opts: ["ADBE 4col-c3", "Color 3", 8],  val: hexToAE(c3) },
+                { opts: ["ADBE 4col-c4", "Color 4", 10], val: hexToAE(c4) }
+            ];
+            for (var ci = 0; ci < colDefs.length; ci++) {
+                if (!setProp(fx4, colDefs[ci].opts, colDefs[ci].val)) {
+                    warnings.push("Color " + (ci + 1) + " could not be set.");
+                }
+            }
+
+            // Animated point positions
+            var ix  = W * (ins / 100);
+            var iy  = H * (ins / 100);
+            var ptStarts = [
+                [ix,     iy    ],
+                [W - ix, iy    ],
+                [ix,     H - iy],
+                [W - ix, H - iy]
+            ];
+            var dv = Math.min(W, H) * (dPc / 100);
+            var ptDeltas = [
+                [ dv,        dv * 0.40],
+                [-dv * 0.70, dv * 0.60],
+                [ dv * 0.50,-dv * 0.50],
+                [-dv * 0.60,-dv * 0.70]
+            ];
+            var ptDefs = [
+                { opts: ["ADBE 4col-p1", "Point 1", 3] },
+                { opts: ["ADBE 4col-p2", "Point 2", 5] },
+                { opts: ["ADBE 4col-p3", "Point 3", 7] },
+                { opts: ["ADBE 4col-p4", "Point 4", 9] }
+            ];
+            var kDur = Math.min(dDr, dur);
+            for (var pi = 0; pi < 4; pi++) {
+                var ptProp = findProp(fx4, ptDefs[pi].opts);
+                if (ptProp) {
+                    try {
+                        var s = ptStarts[pi], dl = ptDeltas[pi];
+                        ptProp.setValueAtTime(0,    [s[0],         s[1]        ]);
+                        ptProp.setValueAtTime(kDur, [s[0] + dl[0], s[1] + dl[1]]);
+                        easyEaseAll(ptProp);
+                    } catch (e) { warnings.push("Point " + (pi + 1) + " keyframes: " + e.message); }
+                } else {
+                    warnings.push("Could not find Point " + (pi + 1) + " on gradient.");
+                }
+            }
+
+            // 4 — Alpha Matte
+            solid.trackMatteType = TrackMatteType.ALPHA;
+
+            // 5 — Vertical drift
+            try {
+                var posProp = solid.property("Transform").property("Position");
+                var pv = posProp.value;
+                posProp.setValueAtTime(0,   [pv[0], pv[1]      ]);
+                posProp.setValueAtTime(dur, [pv[0], pv[1] - vDr]);
+                easyEaseAll(posProp);
+            } catch (e) { warnings.push("Position drift: " + e.message); }
+
+            // 6 — Black-point lift (Levels)
+            var levFx = addFx(solid, ["ADBE Levels", "Levels"]);
+            if (levFx) {
+                if (!setProp(levFx, ["ADBE Lev-outb", "Output Black", 6], bLf / 255)) {
+                    warnings.push("Levels Output Black could not be set. Set it manually to " + bLf + ".");
+                }
+            } else {
+                warnings.push("Could not add Levels effect.");
+            }
+
+            // 7 — Pre-compose
+            var indices = [origLayer.index, solid.index, baseLayer.index];
+            indices.sort(function (a, b) { return a - b; });
+            comp.layers.precompose(indices, "SKY_TEXT_EFFECT", true);
+
+            var msg = "Done!  'SKY_TEXT_EFFECT' added to timeline.\n\n" +
+                      "Inside the pre-comp:\n" +
+                      "  " + origName + "  (Alpha Matte)\n" +
+                      "  SKY_GRADIENT\n" +
+                      "  " + origName + "_BASE  (base fill)";
+            if (warnings.length > 0) {
+                msg += "\n\nWarnings:\n• " + warnings.join("\n• ");
+            }
+            alert(msg);
+
+        } catch (err) {
+            alert("Sky Text Effect failed:\n\n" + err.toString() +
+                  (err.line !== undefined ? "\nLine: " + err.line : ""));
+        } finally {
+            app.endUndoGroup();
         }
-
-        // ── ⑦ Pre-compose ────────────────────────────────────────────────────
-        // Collect live indices (they update as layers are moved) and sort
-        // ascending as required by precompose.
-        // moveAllAttributes = true keeps all keyframes, effects, and the
-        // track-matte relationship inside the new pre-comp.
-
-        var indices = [origLayer.index, solid.index, baseLayer.index];
-        indices.sort(function (a, b) { return a - b; });
-        comp.layers.precompose(indices, "SKY_TEXT_EFFECT", true);
-
-        // ── Done ─────────────────────────────────────────────────────────────
-
-        var msg = "Sky Text Effect applied!\n\n" +
-                  "Layer structure inside SKY_TEXT_EFFECT (top to bottom):\n" +
-                  "  " + origName + "  ← Alpha Matte (text shape)\n" +
-                  "  SKY_GRADIENT        ← Gradient solid (matted + animated)\n" +
-                  "  " + origName + "_BASE  ← 60 % opacity base fill";
-
-        if (warnings.length > 0) {
-            msg += "\n\nWarnings (check these manually):\n• " +
-                   warnings.join("\n• ");
-        }
-        alert(msg);
-
-    } catch (err) {
-        alert(
-            "Sky Text Effect failed:\n\n" + err.toString() +
-            (err.line !== undefined ? "\nLine: " + err.line : "")
-        );
-    } finally {
-        app.endUndoGroup();
     }
 
-})();
+    // ─────────────────────────────────────────────────────────────────────────
+    // UI
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function buildUI(thisObj) {
+
+        var win = (thisObj instanceof Panel)
+            ? thisObj
+            : new Window("palette", "Sky Text Effect", undefined, { resizeable: false });
+
+        win.orientation    = "column";
+        win.alignChildren  = ["fill", "top"];
+        win.margins        = [12, 12, 12, 12];
+        win.spacing        = 8;
+
+        // ── Title ────────────────────────────────────────────────────────────
+
+        var titleGroup = win.add("group");
+        titleGroup.alignment = ["fill", "top"];
+        titleGroup.orientation = "row";
+        titleGroup.margins = [0, 0, 0, 4];
+
+        var titleText = titleGroup.add("statictext", undefined, "SKY TEXT EFFECT");
+        titleText.alignment = ["center", "center"];
+
+        // ── Helper: create a row with a label and a text field ───────────────
+
+        function makeRow(parent, labelStr, defaultVal, unitsStr) {
+            var row = parent.add("group");
+            row.orientation   = "row";
+            row.alignment     = ["fill", "top"];
+            row.alignChildren = ["left", "center"];
+            row.spacing       = 6;
+
+            var lbl = row.add("statictext", undefined, labelStr);
+            lbl.preferredSize = [118, -1];
+
+            var field = row.add("edittext", undefined, String(defaultVal));
+            field.preferredSize = [58, -1];
+
+            if (unitsStr) {
+                var uLbl = row.add("statictext", undefined, unitsStr);
+                uLbl.preferredSize = [28, -1];
+            }
+            return field;
+        }
+
+        // ── Helper: colour row (# prefix + hex field + name hint) ────────────
+
+        function makeColorRow(parent, labelStr, defaultHex, hintStr) {
+            var row = parent.add("group");
+            row.orientation   = "row";
+            row.alignment     = ["fill", "top"];
+            row.alignChildren = ["left", "center"];
+            row.spacing       = 4;
+
+            var lbl = row.add("statictext", undefined, labelStr);
+            lbl.preferredSize = [74, -1];
+
+            row.add("statictext", undefined, "#");
+
+            var field = row.add("edittext", undefined, defaultHex);
+            field.preferredSize = [62, -1];
+
+            if (hintStr) {
+                var hint = row.add("statictext", undefined, hintStr);
+                hint.preferredSize = [80, -1];
+            }
+            return field;
+        }
+
+        // ── Colours panel ────────────────────────────────────────────────────
+
+        var colPanel = win.add("panel", undefined, "Colours");
+        colPanel.orientation   = "column";
+        colPanel.alignChildren = ["fill", "top"];
+        colPanel.margins       = [10, 14, 10, 10];
+        colPanel.spacing       = 6;
+
+        var f_c1 = makeColorRow(colPanel, "Corner 1 (↖)", DEFAULTS.c1, "deep sky blue");
+        var f_c2 = makeColorRow(colPanel, "Corner 2 (↗)", DEFAULTS.c2, "dusty rose");
+        var f_c3 = makeColorRow(colPanel, "Corner 3 (↙)", DEFAULTS.c3, "amber orange");
+        var f_c4 = makeColorRow(colPanel, "Corner 4 (↘)", DEFAULTS.c4, "deep violet");
+
+        // ── Settings panel ───────────────────────────────────────────────────
+
+        var setPanel = win.add("panel", undefined, "Settings");
+        setPanel.orientation   = "column";
+        setPanel.alignChildren = ["fill", "top"];
+        setPanel.margins       = [10, 14, 10, 10];
+        setPanel.spacing       = 6;
+
+        var f_opa = makeRow(setPanel, "Base fill opacity",    DEFAULTS.opacity,   "%");
+        var f_dDr = makeRow(setPanel, "Gradient drift",       DEFAULTS.driftDur,  "s");
+        var f_dPc = makeRow(setPanel, "Drift amount",         DEFAULTS.driftPct,  "%");
+        var f_vDr = makeRow(setPanel, "Vertical drift",       DEFAULTS.vertDrift, "px");
+        var f_bLf = makeRow(setPanel, "Black-point lift",     DEFAULTS.blackLift, "/255");
+        var f_ins = makeRow(setPanel, "Corner inset",         DEFAULTS.inset,     "%");
+
+        // ── Reset + Apply buttons ─────────────────────────────────────────────
+
+        var btnGroup = win.add("group");
+        btnGroup.orientation   = "row";
+        btnGroup.alignment     = ["fill", "top"];
+        btnGroup.alignChildren = ["fill", "center"];
+        btnGroup.spacing       = 6;
+        btnGroup.margins       = [0, 4, 0, 0];
+
+        var resetBtn = btnGroup.add("button", undefined, "Reset");
+        resetBtn.preferredSize = [60, 26];
+
+        var applyBtn = btnGroup.add("button", undefined, "Apply Effect");
+        applyBtn.preferredSize = [-1, 26];
+
+        // ── Button handlers ───────────────────────────────────────────────────
+
+        resetBtn.onClick = function () {
+            f_c1.text  = DEFAULTS.c1;
+            f_c2.text  = DEFAULTS.c2;
+            f_c3.text  = DEFAULTS.c3;
+            f_c4.text  = DEFAULTS.c4;
+            f_opa.text = DEFAULTS.opacity;
+            f_dDr.text = DEFAULTS.driftDur;
+            f_dPc.text = DEFAULTS.driftPct;
+            f_vDr.text = DEFAULTS.vertDrift;
+            f_bLf.text = DEFAULTS.blackLift;
+            f_ins.text = DEFAULTS.inset;
+        };
+
+        applyBtn.onClick = function () {
+            applyEffect({
+                c1:        f_c1.text,
+                c2:        f_c2.text,
+                c3:        f_c3.text,
+                c4:        f_c4.text,
+                opacity:   f_opa.text,
+                driftDur:  f_dDr.text,
+                driftPct:  f_dPc.text,
+                vertDrift: f_vDr.text,
+                blackLift: f_bLf.text,
+                inset:     f_ins.text
+            });
+        };
+
+        return win;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INIT
+    // ─────────────────────────────────────────────────────────────────────────
+
+    var panel = buildUI(thisObj);
+
+    if (panel instanceof Window) {
+        panel.center();
+        panel.show();
+    } else {
+        panel.layout.layout(true);
+    }
+
+})(this);
