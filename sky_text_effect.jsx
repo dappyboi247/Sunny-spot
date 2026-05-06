@@ -7,7 +7,6 @@
  *   File > Scripts > Run Script File...
  *   Save to [AE]/Scripts/ to access from the Scripts menu.
  *   Save to [AE]/Scripts/ScriptUI Panels/ for panel-menu access.
- *   (The script executes directly; no dockable-panel UI wrapper is included.)
  *
  * HOW TO USE
  *   1. Open your composition in After Effects.
@@ -21,23 +20,19 @@
  *                             to letterform shapes via Alpha Matte.
  *            <origLayer>    - original text layer (acts as the Alpha Matte).
  *
- *   Effects on SKY_GRADIENT:
- *   - 4-Color Gradient    : corner colours from deep blue → rose → amber → violet,
- *                           with each colour-point keyframed to drift over 10 s.
- *   - Position keyframes  : Y drifts up 20 px over the comp duration (Easy Ease).
- *   - Levels              : Output Black lifted to 20/255 ≈ 0.078, eliminating
- *                           pure black inside the letters for a luminous feel.
- *                           (This is the scriptable equivalent of a Curves node
- *                           with input 0 mapped to output 20; the Curves effect's
- *                           internal curve-data format is not reliably writable
- *                           via ExtendScript across all AE versions.)
+ * NOTES
+ *   - Non-fatal property failures are listed in the completion dialog so you
+ *     can see exactly what succeeded and what needs manual tweaking.
+ *   - Levels is used for the black-point lift because the Curves effect's
+ *     internal curve-data format cannot be reliably written via ExtendScript
+ *     across all AE versions. The visual result is identical.
  *
  * UNDO
  *   Edit > Undo Sky Text Effect  (single undo step).
  *
  * REQUIREMENTS
  *   Adobe After Effects CC 2014 (13.0) or later.
- *   Requires the built-in "4-Color Gradient" effect (Generate category).
+ *   Built-in "4-Color Gradient" effect (Effect > Generate).
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -50,7 +45,7 @@
     var comp = app.project.activeItem;
 
     if (!comp || !(comp instanceof CompItem)) {
-        alert("Sky Text Effect:\nPlease open a composition first.");
+        alert("Please open a composition first.");
         return;
     }
 
@@ -71,8 +66,8 @@
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Convert a 6-character hex string (no "#") to an AE colour array [r,g,b,a]
-     * with component values normalised to the 0–1 range.
+     * Convert a 6-char hex string (no "#") to an AE [r,g,b,a] colour array
+     * with values in the 0–1 range.
      */
     function hexToAE(hex) {
         return [
@@ -84,44 +79,74 @@
     }
 
     /**
-     * Apply Easy Ease (velocity 0, influence 33.33 %) to every keyframe of a
-     * Property.  Works for both scalar and multi-dimensional properties.
-     * Silently skips spatial-only (non-temporal) properties.
+     * Find a property on `parent` by trying each entry in `options` in order.
+     * Each entry can be a string (match-name or display-name) or a number (index).
+     * Returns the first Property found, or null if none succeed.
+     */
+    function findProp(parent, options) {
+        for (var i = 0; i < options.length; i++) {
+            try {
+                var p = parent.property(options[i]);
+                if (p) { return p; }
+            } catch (e) {}
+        }
+        return null;
+    }
+
+    /**
+     * Add an effect to `layer` by trying each name in `nameOptions`.
+     * Tries both "ADBE Effect Parade" and "Effects" as the parent group.
+     * Returns the new effect PropertyGroup, or null on total failure.
+     */
+    function addFx(layer, nameOptions) {
+        var groupKeys = ["ADBE Effect Parade", "Effects"];
+        for (var gi = 0; gi < groupKeys.length; gi++) {
+            var fxGroup;
+            try { fxGroup = layer.property(groupKeys[gi]); } catch (e) { continue; }
+            if (!fxGroup) { continue; }
+            for (var ni = 0; ni < nameOptions.length; ni++) {
+                try { return fxGroup.addProperty(nameOptions[ni]); } catch (e) {}
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Find a property on `parent` using `options` and set its value.
+     * Returns true on success, false if the property was not found or setValue failed.
+     */
+    function setProp(parent, options, value) {
+        var p = findProp(parent, options);
+        if (!p) { return false; }
+        try { p.setValue(value); return true; } catch (e) { return false; }
+    }
+
+    /**
+     * Apply Easy Ease (velocity 0, influence 33.33 %) to every keyframe of
+     * `prop`.  Handles both scalar and multi-dimensional properties.
+     * Silently ignores spatial-only properties that don't support temporal easing.
      */
     function easyEaseAll(prop) {
         var n = prop.numKeys;
         if (n < 1) { return; }
-        var ei   = new KeyframeEase(0, 33.33);
-        var eo   = new KeyframeEase(0, 33.33);
-        var dims = (prop.value instanceof Array) ? prop.value.length : 1;
-        var inArr = [], outArr = [];
+
+        var dims = 1;
+        try {
+            var v = prop.value;
+            if (v && typeof v.length === "number" && v.length > 1) {
+                dims = v.length;
+            }
+        } catch (e) {}
+
+        var ei = new KeyframeEase(0, 33.33);
+        var eo = new KeyframeEase(0, 33.33);
+        var inArr  = [];
+        var outArr = [];
         for (var d = 0; d < dims; d++) { inArr.push(ei); outArr.push(eo); }
+
         for (var k = 1; k <= n; k++) {
-            try { prop.setTemporalEasingAtKey(k, inArr, outArr); }
-            catch (e) { /* spatial property — temporal easing not applicable */ }
+            try { prop.setTemporalEasingAtKey(k, inArr, outArr); } catch (e) {}
         }
-    }
-
-    /**
-     * Safely set a value on a sub-property identified by match-name or index.
-     * Returns true on success, false on any error.
-     */
-    function trySet(parent, nameOrIdx, value) {
-        try { parent.property(nameOrIdx).setValue(value); return true; }
-        catch (e) { return false; }
-    }
-
-    /**
-     * Safely retrieve a keyframeable Property by match-name, falling back to
-     * a numeric index.  Returns null if neither lookup succeeds.
-     */
-    function getProp(parent, matchName, fallbackIdx) {
-        var prop = null;
-        try { prop = parent.property(matchName); } catch (e) {}
-        if (!prop || !prop.canSetValueAtTime) {
-            try { prop = parent.property(fallbackIdx); } catch (e) {}
-        }
-        return (prop && prop.canSetValueAtTime) ? prop : null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -135,160 +160,186 @@
         var H        = comp.height;
         var dur      = comp.duration;
         var origName = origLayer.name;
-        var FX       = "ADBE Effect Parade"; // match-name for the Effects group
+        var warnings = []; // non-fatal issues reported at the end
 
         // ── ① Base fill ──────────────────────────────────────────────────────
-        // Duplicate the text layer, push it to the bottom of the stack, and
-        // lower its opacity to 60 %.  This keeps letterforms legible even when
-        // the sky gradient is very dark.
+        // Duplicate the text layer → rename → push to bottom → 60 % opacity.
+        // Keeps letterforms readable when the sky gradient is very dark.
 
         var baseLayer = origLayer.duplicate();
         baseLayer.name = origName + "_BASE";
         baseLayer.moveToEnd();
-        baseLayer.property("Transform").property("Opacity").setValue(60);
+        if (!setProp(baseLayer, ["Transform/Opacity", "Opacity", "ADBE Opacity"], 60)) {
+            // Belt-and-suspenders: set via the Transform group path
+            try {
+                baseLayer.property("Transform").property("Opacity").setValue(60);
+            } catch (e) {
+                warnings.push("Base layer opacity: " + e.message);
+            }
+        }
 
         // ── ② SKY_GRADIENT solid ─────────────────────────────────────────────
-        // A white solid that will be painted with the 4-Color Gradient below
-        // and clipped to the letterform shapes via an Alpha Matte.
+        // White solid, same size as the comp. The gradient effect paints over it.
 
         var solid = comp.layers.addSolid([1, 1, 1], "SKY_GRADIENT", W, H, 1, dur);
 
         // Place solid directly BELOW the original text layer.
-        // AE track-matte convention: the matte layer must be immediately ABOVE
-        // the matted layer.  origLayer (text) will be the matte; solid is matted.
+        // AE track-matte rule: the matte layer must be immediately ABOVE the
+        // matted layer.  After this call origLayer is at (solid.index - 1).
         solid.moveAfter(origLayer);
 
         // ── ③ 4-Color Gradient effect ────────────────────────────────────────
 
-        var fx4 = solid.property(FX).addProperty("ADBE 4-Color Gradient");
+        var fx4 = addFx(solid, ["ADBE 4-Color Gradient", "4-Color Gradient"]);
+        if (!fx4) {
+            throw new Error(
+                "Could not add the 4-Color Gradient effect.\n" +
+                "Verify it is available: Effect > Generate > 4-Color Gradient."
+            );
+        }
 
         // ─ Static colours ─
-        // Match-names: "ADBE 4col-c1" through "ADBE 4col-c4".
-        // Fallback indices within the effect: 4, 6, 8, 10
+        // Each colour is tried by match-name, display-name, then property index.
+        // Indices in the 4-Color Gradient effect: c1=4, c2=6, c3=8, c4=10
         // (odd indices 3,5,7,9 are the paired position/point properties).
 
-        var colMatchNames = ["ADBE 4col-c1", "ADBE 4col-c2",
-                             "ADBE 4col-c3", "ADBE 4col-c4"];
-        var colIndexes    = [4, 6, 8, 10];
-        var colValues     = [
-            hexToAE("2E4A7A"),  // deep sky blue   — top-left corner
-            hexToAE("C06C84"),  // dusty rose       — top-right corner
-            hexToAE("FF8C42"),  // amber orange     — bottom-left corner
-            hexToAE("1A0A2E")   // deep violet      — bottom-right corner
+        var colDefs = [
+            { opts: ["ADBE 4col-c1", "Color 1", 4],  val: hexToAE("2E4A7A") }, // deep sky blue
+            { opts: ["ADBE 4col-c2", "Color 2", 6],  val: hexToAE("C06C84") }, // dusty rose
+            { opts: ["ADBE 4col-c3", "Color 3", 8],  val: hexToAE("FF8C42") }, // amber orange
+            { opts: ["ADBE 4col-c4", "Color 4", 10], val: hexToAE("1A0A2E") }  // deep violet
         ];
-
-        for (var ci = 0; ci < 4; ci++) {
-            if (!trySet(fx4, colMatchNames[ci], colValues[ci])) {
-                trySet(fx4, colIndexes[ci], colValues[ci]);
+        for (var ci = 0; ci < colDefs.length; ci++) {
+            if (!setProp(fx4, colDefs[ci].opts, colDefs[ci].val)) {
+                warnings.push("Color " + (ci + 1) + " could not be set on the gradient.");
             }
         }
 
         // ─ Animated colour-point positions ─
-        // Each colour has an associated 2-D "point" that controls where it is
-        // centred in comp space.  Animating these positions produces the gentle
-        // living-sky movement without an obviously mechanical feel.
+        // Each colour has an associated 2-D point in comp space.  Drifting
+        // these points slowly creates the living-sky feel.
 
-        // Starting positions: each corner inset ~15 % from the respective edge.
-        var ix = W * 0.15, iy = H * 0.15;
-        var ptStart = [
+        var ix = W * 0.15;
+        var iy = H * 0.15;
+
+        // Starting positions — each corner inset ~15 % from the edge.
+        var ptStarts = [
             [ix,     iy    ],   // top-left
             [W - ix, iy    ],   // top-right
             [ix,     H - iy],   // bottom-left
             [W - ix, H - iy]    // bottom-right
         ];
 
-        // Each corner drifts in a distinct direction; magnitude ≈ 6 % of the
-        // shorter comp dimension — subtle enough not to read as animation.
+        // Each corner drifts in a distinct direction; ~6 % of shorter dimension.
         var dv = Math.min(W, H) * 0.06;
-        var ptDelta = [
+        var ptDeltas = [
             [ dv,        dv * 0.40],   // top-left   → right & gently down
             [-dv * 0.70, dv * 0.60],   // top-right  → left  & gently down
             [ dv * 0.50,-dv * 0.50],   // bottom-left  → right & gently up
             [-dv * 0.60,-dv * 0.70]    // bottom-right → left  & gently up
         ];
 
-        var ptMatchNames = ["ADBE 4col-p1", "ADBE 4col-p2",
-                            "ADBE 4col-p3", "ADBE 4col-p4"];
-        var ptIndexes    = [3, 5, 7, 9]; // fallback indices within fx4
+        // Point property lookup: match-name, display-name, then index fallback.
+        // Indices in the effect: p1=3, p2=5, p3=7, p4=9
+        var ptDefs = [
+            { opts: ["ADBE 4col-p1", "Point 1", 3] },
+            { opts: ["ADBE 4col-p2", "Point 2", 5] },
+            { opts: ["ADBE 4col-p3", "Point 3", 7] },
+            { opts: ["ADBE 4col-p4", "Point 4", 9] }
+        ];
 
-        // Drift plays over 10 s, or the full comp duration if it is shorter.
+        // Drift plays over 10 s, capped at the comp duration.
         var kDur = Math.min(10, dur);
 
         for (var pi = 0; pi < 4; pi++) {
-            var ptProp = getProp(fx4, ptMatchNames[pi], ptIndexes[pi]);
+            var ptProp = findProp(fx4, ptDefs[pi].opts);
             if (ptProp) {
-                var s   = ptStart[pi];
-                var dlt = ptDelta[pi];
-                ptProp.setValueAtTime(0,    [s[0],          s[1]         ]);
-                ptProp.setValueAtTime(kDur, [s[0] + dlt[0], s[1] + dlt[1]]);
-                easyEaseAll(ptProp);
+                try {
+                    var s   = ptStarts[pi];
+                    var dlt = ptDeltas[pi];
+                    ptProp.setValueAtTime(0,    [s[0],          s[1]         ]);
+                    ptProp.setValueAtTime(kDur, [s[0] + dlt[0], s[1] + dlt[1]]);
+                    easyEaseAll(ptProp);
+                } catch (e) {
+                    warnings.push("Point " + (pi + 1) + " keyframes failed: " + e.message);
+                }
+            } else {
+                warnings.push("Could not find Point " + (pi + 1) + " on the gradient effect.");
             }
         }
 
         // ── ④ Alpha Matte ────────────────────────────────────────────────────
-        // origLayer is now directly above solid in the layer stack.
-        // Setting TrackMatteType.ALPHA on solid instructs AE to use the alpha
-        // channel of the layer immediately above (origLayer / the text) as a
-        // mask, so the gradient is only visible inside the letterforms.
-        // AE will automatically hide the matte layer's eye icon in the timeline.
+        // origLayer is directly above solid in the stack (see moveAfter above).
+        // ALPHA matte: AE uses the alpha channel of the layer immediately above
+        // solid (origLayer) as a mask — gradient only shows inside letterforms.
+        // AE will automatically hide the matte layer's eye icon.
 
         solid.trackMatteType = TrackMatteType.ALPHA;
 
         // ── ⑤ Vertical position drift ────────────────────────────────────────
-        // The solid drifts upward 20 px over the full comp duration.
-        // Easy Ease on both keyframes produces gentle acceleration/deceleration.
+        // Solid drifts upward 20 px over the entire comp duration.
+        // Easy Ease on both keyframes gives gentle acceleration/deceleration.
 
-        var posProp  = solid.property("Transform").property("Position");
-        var posStart = posProp.value.slice();   // copy [cx, cy] — comp centre
+        try {
+            var posProp = solid.property("Transform").property("Position");
+            var posVal  = posProp.value;
+            var posX    = posVal[0]; // comp centre X
+            var posY    = posVal[1]; // comp centre Y
 
-        posProp.setValueAtTime(0,   [posStart[0], posStart[1]     ]);
-        posProp.setValueAtTime(dur, [posStart[0], posStart[1] - 20]);
-        easyEaseAll(posProp);
+            posProp.setValueAtTime(0,   [posX, posY     ]);
+            posProp.setValueAtTime(dur, [posX, posY - 20]);
+            easyEaseAll(posProp);
+        } catch (e) {
+            warnings.push("Position drift could not be applied: " + e.message);
+        }
 
         // ── ⑥ Black-point lift ───────────────────────────────────────────────
-        // Levels: Output Black = 20/255 ≈ 0.078
+        // Levels Output Black = 20/255 ≈ 0.078 — same visual result as a Curves
+        // node mapping input 0 to output 20.  No pure black inside letterforms.
         //
-        // This is the numerical equivalent of a Curves adjustment that maps
-        // input level 0 to output level 20, preventing any pure black from
-        // appearing inside the letterforms and keeping the effect luminous.
-        //
-        // The Curves effect (ADBE CurvesCustom) is NOT used here because its
-        // internal curve-data structure is stored as a non-standard custom value
-        // type that cannot be reliably written via ExtendScript across all
-        // shipping versions of After Effects.  Levels achieves the identical
-        // visual result and is fully scriptable.
-        //
-        // AE Levels stores its values in the 0–1 normalised range internally,
-        // even though the UI displays them as 0–255.
+        // AE stores Levels values in the 0–1 normalised range internally.
+        // The Curves effect is NOT used here because its CurveData internal
+        // format is not reliably writable via ExtendScript across AE versions.
 
-        var levFx = solid.property(FX).addProperty("ADBE Levels");
-        // "ADBE Lev-outb" = Output Black match-name; index 6 is the fallback.
-        if (!trySet(levFx, "ADBE Lev-outb", 20 / 255)) {
-            trySet(levFx, 6, 20 / 255);
+        var levFx = addFx(solid, ["ADBE Levels", "Levels"]);
+        if (levFx) {
+            // Try match-name → display-name → index 6 (Output Black position)
+            if (!setProp(levFx, ["ADBE Lev-outb", "Output Black", 6], 20 / 255)) {
+                warnings.push("Levels Output Black could not be set. " +
+                              "Set it manually: Output Black = 20 (or 0.078).");
+            }
+        } else {
+            warnings.push("Could not add Levels effect. " +
+                          "Add it manually and set Output Black to 20.");
         }
 
         // ── ⑦ Pre-compose ────────────────────────────────────────────────────
-        // Bundle origLayer (matte), solid (sky), and baseLayer (fill) into a
-        // single pre-comp.  moveAllAttributes = true keeps all effects,
-        // keyframes, and the track-matte relationship inside the pre-comp.
+        // Collect live indices (they update as layers are moved) and sort
+        // ascending as required by precompose.
+        // moveAllAttributes = true keeps all keyframes, effects, and the
+        // track-matte relationship inside the new pre-comp.
 
         var indices = [origLayer.index, solid.index, baseLayer.index];
         indices.sort(function (a, b) { return a - b; });
         comp.layers.precompose(indices, "SKY_TEXT_EFFECT", true);
 
-        alert(
-            "Sky Text Effect applied!\n\n" +
-            "The 'SKY_TEXT_EFFECT' pre-comp has been added to your timeline.\n\n" +
-            "Layer structure inside the pre-comp (top to bottom):\n" +
-            "  " + origName + "         ← Alpha Matte source (text shape)\n" +
-            "  SKY_GRADIENT           ← Gradient solid (matted + animated)\n" +
-            "  " + origName + "_BASE   ← 60 % opacity base fill"
-        );
+        // ── Done ─────────────────────────────────────────────────────────────
+
+        var msg = "Sky Text Effect applied!\n\n" +
+                  "Layer structure inside SKY_TEXT_EFFECT (top to bottom):\n" +
+                  "  " + origName + "  ← Alpha Matte (text shape)\n" +
+                  "  SKY_GRADIENT        ← Gradient solid (matted + animated)\n" +
+                  "  " + origName + "_BASE  ← 60 % opacity base fill";
+
+        if (warnings.length > 0) {
+            msg += "\n\nWarnings (check these manually):\n• " +
+                   warnings.join("\n• ");
+        }
+        alert(msg);
 
     } catch (err) {
         alert(
-            "Sky Text Effect — unexpected error:\n\n" +
-            err.toString() +
+            "Sky Text Effect failed:\n\n" + err.toString() +
             (err.line !== undefined ? "\nLine: " + err.line : "")
         );
     } finally {
