@@ -424,9 +424,19 @@
             win.update();
         }
 
+        $.global.skyTextEffectSetStatus = setStatus;
+        $.global.skyTextEffectApply = function () {
+            var statusFn = $.global.skyTextEffectSetStatus;
+            try {
+                var result = applyEffect($.global.skyTextEffectParams || {});
+                statusFn(result);
+            } catch (e) {
+                statusFn("ERROR: " + e.message);
+            }
+        };
+
         testBtn.onClick = function () {
             $.writeln("Sky Text Effect: TEST button clicked");
-            alert("Test button clicked");
             setStatus("Test click received.");
         };
 
@@ -446,25 +456,20 @@
 
         applyBtn.onClick = function () {
             $.writeln("Sky Text Effect: APPLY button clicked");
-            alert("Apply button clicked");
             setStatus("Running...");
-            try {
-                var result = applyEffect({
-                    c1: f_c1.text,
-                    c2: f_c2.text,
-                    c3: f_c3.text,
-                    c4: f_c4.text,
-                    opacity: r_opa.field.text,
-                    driftDur: r_dDr.field.text,
-                    driftPct: r_dPc.field.text,
-                    vertDrift: r_vDr.field.text,
-                    blackLift: r_bLf.field.text,
-                    inset: r_ins.field.text
-                });
-                setStatus(result);
-            } catch (e) {
-                setStatus("ERROR: " + e.message);
-            }
+            $.global.skyTextEffectParams = {
+                c1: f_c1.text,
+                c2: f_c2.text,
+                c3: f_c3.text,
+                c4: f_c4.text,
+                opacity: r_opa.field.text,
+                driftDur: r_dDr.field.text,
+                driftPct: r_dPc.field.text,
+                vertDrift: r_vDr.field.text,
+                blackLift: r_bLf.field.text,
+                inset: r_ins.field.text
+            };
+            app.scheduleTask("$.global.skyTextEffectApply()", 25, false);
         };
 
         return win;
